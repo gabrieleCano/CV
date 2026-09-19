@@ -1,0 +1,94 @@
+\documentclass[11pt,a4paper]{moderncv}
+\moderncvstyle{casual}
+\moderncvcolor{blue}
+\usepackage[utf8]{inputenc}
+\usepackage[scale=0.85]{geometry}
+\usepackage{enumitem}
+
+\name{Gabriele}{Canò Cantelmo}
+\title{Software Engineer | Java \& Cloud}
+
+\address{Valencia}{Spain}
+% \phone[mobile]{}
+\email{gabriele.cano989@gmail.com}
+\social[linkedin]{https://www.linkedin.com/in/gabriele-cano-cantelmo/}
+\social[github]{gabrieleCano}
+
+\begin{document}
+\makecvtitle
+
+% =====================
+% SUMMARY
+% =====================
+\section{Summary}
+\vspace{0.5em}
+\cvitem{}{
+  Software Engineer with 8+ years of experience building secure, scalable Java systems for banking
+  and IoT clients, spanning monolith architecture, microservices, and cloud infrastructure on AWS.
+  I've led development teams, owned production systems end-to-end, and driven technical migrations
+  with minimal disruption. I integrate AI tools into my daily workflow to move faster without
+  compromising code quality, and I favor direct communication and Agile delivery.
+}
+
+\section{Technical Skills}
+\cvitem{Programming Languages}{Java (8--25)}
+\cvitem{Frameworks \& Testing}{Spring, Spring Boot, Spring Cloud, Spring Data (JPA), Spring Kafka, REST, SOAP WebServices, J2EE, JUnit, Cucumber (BDD)}
+\cvitem{Databases \& Caching}{SQL Server, Oracle, DB2, MongoDB, DocumentDB, Ehcache}
+\cvitem{Cloud (AWS)}{AWS SDK, SQS, SNS, SES, EventBridge, EC2, ELB, Auto Scaling, VPC, S3, Secrets Manager, CloudFormation, CloudWatch}
+\cvitem{Tools}{Git, Docker, Kubernetes, Jenkins, GitLab, Jira}
+\cvitem{AI Tools}{GitHub Copilot, Claude, AI-assisted development workflows}
+
+
+\section{Experience}
+\cventry{Mar 2025 -- Present}{Backend \& Cloud Engineer}{BBVA (via GFT)}{Spain}{}{
+Cross-functional engineer on BBVA's Notifications team, owning the system that delivers push, sms, web push, and email notifications to bank employees and customers across multiple internal and external consumers. Responsibilities span development, AWS configuration, and production support:
+\begin{itemize}[leftmargin=*, topsep=0pt, partopsep=0pt, parsep=0pt, itemsep=2pt]
+  \item Designed and built a dynamic HTML template validation framework by extending OWASP's HTML sanitization policies, overriding default behavior to reject unsafe templates outright rather than silently sanitizing them
+  \item Diagnose and resolve production incidents reported via client tickets
+  \item Configuring a new AWS test environment
+  \item Write and maintain Jenkins CI pipelines and CloudFormation infrastructure templates
+  \item Writing and maintaining Cucumber test suites
+  \item Perform monitoring, sprint task reviews, and code reviews within an Agile/Jira workflow
+\end{itemize}
+}
+\cventry{Jul 2024 -- Feb 2025}{Java Backend Developer}{Intesa Sanpaolo (via GFT)}{Spain}{}{
+Recruited by GFT Spain for my Italian language skills to join a GFT Italy-led team building a microservices-based platform for Intesa Sanpaolo's employee credit card management. Developed Java microservices (BE4FE and BE layers), integrating Oracle DB, MongoDB, and Kafka to ensure secure, scalable data exchange.
+}
+\cventry{2020 -- Jun 2024}{Java Backend Developer / Team Leader}{Italgas (via Atos)}{Italy}{}{
+Deployed by Atos to Italgas, where I grew from developer to team leader on a monolithic IoT platform. Deep ownership of the codebase let me architect and implement solutions independently.
+\begin{itemize}[leftmargin=*, topsep=0pt, partopsep=0pt, parsep=0pt, itemsep=2pt]
+  \item Led a small team of junior developers
+  \item Architected and implemented core application features and both relational and non-relational data structures for an IoT platform
+  \item Drove the migration from Java 8 to Java 17 and Spring Boot 2.1 to 2.7 across the platform, updating dependencies and GitLab CI pipelines with minimal production downtime
+  \item Began shifting the codebase from a monolithic structure toward a more service-oriented approach
+  \item Implemented REST and SOAP APIs to support integrations across containerized and IoT systems
+\end{itemize}
+}
+\cventry{2018 -- 2020}{Java Trainer}{Begear}{Italy}{}{
+Transitioned from student to instructor, designing and delivering hands-on courses on Java fundamentals, best practices, and Spring Boot. Built my communication and mentoring skills by guiding students through coding exercises and group projects.
+}
+\cventry{2009 -- 2014}{Software Developer}{GM Italia}{Italy}{}{
+Sole developer at the company, building and maintaining a sales-support system (on the Diapason ERP platform) that generated product labels and automatically updated warehouse inventory upon each sofa order, removing the raw materials consumed in production. Also served as the primary point of contact for IT support and network infrastructure.
+}
+
+\section{Education}
+\cventry{}{Computer Science studies (not completed)}{Università degli Studi di Napoli Parthenope}{Napoli - Italy}{}{}
+\cventry{}{High School Diploma in Information Technology}{I.T.I.A. Manzoni}{Napoli - Italy}{}{}
+
+\section{Languages}
+\cvitemwithcomment{Italian}{Native}{}
+\cvitemwithcomment{English}{B2/C1 (in progress)}{}
+\cvitemwithcomment{Spanish}{B1}{}
+
+\section{Courses \& Certifications}
+\cventry{2026}{AWS Certified Cloud Practitioner}{Amazon Web Services}{}{}{}
+\cventry{2024}{DevOps \& Cloud Engineer}{Tag Academy}{}{}{}
+\cventry{2024}{Apache Kafka for Spring Developers}{Coursera}{}{}{}
+\cventry{2023}{IBM DevOps \& Software Engineering}{Coursera}{}{}{}
+\cventry{2020}{Spring Boot Developer}{Coursera}{}{}{}
+\cventry{2018}{Java Developer}{Begear}{}{}{}
+
+\section{Personal Projects}
+\cvitem{P2P Blockchain in Java}{Built a peer-to-peer blockchain from scratch in Java at a Napoli Blockchain community event, reimplementing core Bitcoin concepts: UTXO-based transaction model, SHA256withECDSA digital signatures (BouncyCastle), Proof-of-Work consensus, and P2P networking with node discovery.}
+
+\end{document}
