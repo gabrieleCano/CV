@@ -77,10 +77,11 @@ jobs:
             texlive-lang-english \
             texlive-lang-spanish
 
-      - name: Create Spanish source in memory
+            - name: Create Spanish source in memory with Claude
         if: steps.changes.outputs.cv == 'true'
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: claude-sonnet-4-20250514
         shell: bash
         run: |
           set -euo pipefail
@@ -95,49 +96,60 @@ jobs:
           target = pathlib.Path("/tmp/main_es.tex")
 
           text = source.read_text(encoding="utf-8")
-          key = os.environ.get("OPENAI_API_KEY")
+          api_key = os.environ.get("ANTHROPIC_API_KEY")
+          model = os.environ["ANTHROPIC_MODEL"]
 
-          if not key:
+          if not api_key:
               raise SystemExit(
-                  "OPENAI_API_KEY repository secret is required "
+                  "ANTHROPIC_API_KEY repository secret is required "
                   "to generate the Spanish CV"
               )
 
           payload = {
-              "model": "gpt-4o-mini",
+              "model": model,
+              "max_tokens": 12000,
               "temperature": 0.1,
+              "system": (
+                  "Translate the human-readable text in this LaTeX CV "
+                  "from English to European Spanish (Castilian). "
+                  "Preserve every LaTeX command, environment, placeholder, "
+                  "URL, email, number, date, and formatting command exactly. "
+                  "Do not translate LaTeX commands, command arguments that "
+                  "contain technical identifiers, URLs, email addresses, "
+                  "company names, product names, or programming technologies. "
+                  "Return only the complete translated LaTeX source without "
+                  "Markdown code fences."
+              ),
               "messages": [
-                  {
-                      "role": "system",
-                      "content": (
-                          "Translate the human-readable text in this LaTeX CV "
-                          "from English to European Spanish (Castilian). "
-                          "Preserve every LaTeX command, environment, placeholder, "
-                          "URL, email, number, date, and formatting command exactly. "
-                          "Return only the complete translated LaTeX source."
-                      ),
-                  },
                   {
                       "role": "user",
                       "content": text,
-                  },
+                  }
               ],
           }
 
           request = urllib.request.Request(
-              "https://api.openai.com/v1/chat/completions",
-              data=json.dumps(payload).encode(),
+              "https://api.anthropic.com/v1/messages",
+              data=json.dumps(payload).encode("utf-8"),
               headers={
-                  "Authorization": f"Bearer {key}",
-                  "Content-Type": "application/json",
+                  "x-api-key": api_key,
+                  "anthropic-version": "2023-06-01",
+                  "content-type": "application/json",
               },
               method="POST",
           )
 
-          with urllib.request.urlopen(request, timeout=120) as response:
+          with urllib.request.urlopen(request, timeout=180) as response:
               result = json.load(response)
 
-          translated = result["choices"][0]["message"]["content"].strip()
+          translated = "".join(
+              block["text"]
+              for block in result["content"]
+              if block.get("type") == "text"
+          ).strip()
+
+          if not translated:
+              raise SystemExit("Claude returned an empty translation")
 
           if translated.startswith("```"):
               translated = translated.split("\n", 1)[1]
