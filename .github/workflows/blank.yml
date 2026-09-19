@@ -1,42 +1,72 @@
-name: Build CV PDFs
+name: Build CV and Cover Letter PDFs
 
 on:
   push:
     branches:
       - main
     paths:
-      - "main.tex"
-      - "TeX/main.tex"
+      - "TeX/CV/main.tex"
+      - "TeX/CoverLetters/**"
       - ".github/workflows/blank.yml"
   workflow_dispatch:
 
 permissions:
   contents: write
 
+env:
+  CV_SOURCE: TeX/CV/main.tex
+  CV_ENG_OUTPUT: CV/PDFs/CV/ENG
+  CV_ESP_OUTPUT: CV/PDFs/CV/ESP
+  COVER_LETTER_SOURCE: TeX/CoverLetters
+  COVER_LETTER_OUTPUT: CV/PDFs/CoverLetters
+
 jobs:
-  build-cv:
+  build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Prepare LaTeX sources
+      - name: Determine changed sources
+        id: changes
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
         run: |
           set -euo pipefail
-          mkdir -p TeX CV/ENG CV/ESP "Cover Letters"
 
-          # Keep the requested TeX directory as the canonical source location.
-          # This also migrates the existing root-level files on the first run.
-          if [[ ! -f TeX/main.tex ]]; then
-            cp main.tex TeX/main.tex
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "cv=true" >> "$GITHUB_OUTPUT"
+            echo "cover_letters=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          if [[ ! -f TeX/coverLetter.tex && -f coverLetter.tex ]]; then
-            cp coverLetter.tex TeX/coverLetter.tex
+
+          changed_files="$(
+            git diff --name-status "$BEFORE" "$AFTER"
+          )"
+
+          echo "Changed files:"
+          echo "$changed_files"
+
+          if grep -qE $'^[AM][[:space:]]+TeX/CV/main\\.tex$' <<< "$changed_files"; then
+            echo "cv=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cv=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if grep -qE $'^A[[:space:]]+TeX/CoverLetters/[^[:space:]]+$' <<< "$changed_files"; then
+            echo "cover_letters=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "cover_letters=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install LaTeX
+        if: steps.changes.outputs.cv == 'true' || steps.changes.outputs.cover_letters == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -47,109 +77,203 @@ jobs:
             texlive-lang-english \
             texlive-lang-spanish
 
-      - name: Create or update Spanish source
+      - name: Create Spanish source in memory
+        if: steps.changes.outputs.cv == 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         shell: bash
         run: |
           set -euo pipefail
+
           python3 <<'PY'
           import json
           import os
           import pathlib
           import urllib.request
 
-          source = pathlib.Path("TeX/main.tex")
-          target = pathlib.Path("TeX/main_es.tex")
+          source = pathlib.Path(os.environ["CV_SOURCE"])
+          target = pathlib.Path("/tmp/main_es.tex")
+
           text = source.read_text(encoding="utf-8")
           key = os.environ.get("OPENAI_API_KEY")
 
           if not key:
-              if not target.exists():
-                  target.write_text(
-                      "% Spanish translation not generated: set the OPENAI_API_KEY repository secret.\n"
-                      "% This fallback keeps the Spanish build available until translation is configured.\n\n"
-                      + text,
-                      encoding="utf-8",
-                  )
-              print("OPENAI_API_KEY is not configured; preserving the existing Spanish source or using a fallback copy.")
-          else:
-              payload = {
-                  "model": "gpt-4o-mini",
-                  "temperature": 0.1,
-                  "messages": [
-                      {
-                          "role": "system",
-                          "content": (
-                              "Translate the human-readable text in this LaTeX CV from English to European Spanish (Castilian). "
-                              "Preserve every LaTeX command, environment, placeholder, URL, email, number, date, and formatting command exactly. "
-                              "Return only the complete translated LaTeX source."
-                          ),
-                      },
-                      {"role": "user", "content": text},
-                  ],
-              }
-              request = urllib.request.Request(
-                  "https://api.openai.com/v1/chat/completions",
-                  data=json.dumps(payload).encode(),
-                  headers={
-                      "Authorization": f"Bearer {key}",
-                      "Content-Type": "application/json",
-                  },
-                  method="POST",
+              raise SystemExit(
+                  "OPENAI_API_KEY repository secret is required "
+                  "to generate the Spanish CV"
               )
-              with urllib.request.urlopen(request, timeout=120) as response:
-                  result = json.load(response)
-              translated = result["choices"][0]["message"]["content"]
-              if translated.startswith("```"):
-                  translated = translated.split("\n", 1)[1].rsplit("```", 1)[0]
-              target.write_text(translated.rstrip() + "\n", encoding="utf-8")
+
+          payload = {
+              "model": "gpt-4o-mini",
+              "temperature": 0.1,
+              "messages": [
+                  {
+                      "role": "system",
+                      "content": (
+                          "Translate the human-readable text in this LaTeX CV "
+                          "from English to European Spanish (Castilian). "
+                          "Preserve every LaTeX command, environment, placeholder, "
+                          "URL, email, number, date, and formatting command exactly. "
+                          "Return only the complete translated LaTeX source."
+                      ),
+                  },
+                  {
+                      "role": "user",
+                      "content": text,
+                  },
+              ],
+          }
+
+          request = urllib.request.Request(
+              "https://api.openai.com/v1/chat/completions",
+              data=json.dumps(payload).encode(),
+              headers={
+                  "Authorization": f"Bearer {key}",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+
+          with urllib.request.urlopen(request, timeout=120) as response:
+              result = json.load(response)
+
+          translated = result["choices"][0]["message"]["content"].strip()
+
+          if translated.startswith("```"):
+              translated = translated.split("\n", 1)[1]
+              translated = translated.rsplit("```", 1)[0].strip()
+
+          target.write_text(translated + "\n", encoding="utf-8")
           PY
 
-      - name: Build English PDF
+      - name: Build English CV PDF
+        if: steps.changes.outputs.cv == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          date_stamp="$(date -u +%Y%m%d)"
-          mkdir -p CV/ENG
-          pdflatex -interaction=nonstopmode -halt-on-error \
-            -output-directory CV/ENG TeX/main.tex
-          pdflatex -interaction=nonstopmode -halt-on-error \
-            -output-directory CV/ENG TeX/main.tex
-          mv CV/ENG/main.pdf "CV/ENG/CV Gabriele Cano Cantelmo - ${date_stamp} - ENG.pdf"
 
-      - name: Build Spanish PDF
-        shell: bash
-        run: |
-          set -euo pipefail
           date_stamp="$(date -u +%Y%m%d)"
-          mkdir -p CV/ESP
-          pdflatex -interaction=nonstopmode -halt-on-error \
-            -output-directory CV/ESP TeX/main_es.tex
-          pdflatex -interaction=nonstopmode -halt-on-error \
-            -output-directory CV/ESP TeX/main_es.tex
-          mv CV/ESP/main_es.pdf "CV/ESP/CV Gabriele Cano Cantelmo - ${date_stamp} - ESP.pdf"
+          mkdir -p "$CV_ENG_OUTPUT"
 
-      - name: Commit generated files
+          pdflatex \
+            -interaction=nonstopmode \
+            -halt-on-error \
+            -output-directory "$CV_ENG_OUTPUT" \
+            "$CV_SOURCE"
+
+          pdflatex \
+            -interaction=nonstopmode \
+            -halt-on-error \
+            -output-directory "$CV_ENG_OUTPUT" \
+            "$CV_SOURCE"
+
+          mv \
+            "$CV_ENG_OUTPUT/main.pdf" \
+            "$CV_ENG_OUTPUT/CV Gabriele Cano Cantelmo - ${date_stamp} - Eng.pdf"
+
+      - name: Build Spanish CV PDF
+        if: steps.changes.outputs.cv == 'true'
         shell: bash
         run: |
           set -euo pipefail
+
+          date_stamp="$(date -u +%Y%m%d)"
+          mkdir -p "$CV_ESP_OUTPUT"
+
+          pdflatex \
+            -interaction=nonstopmode \
+            -halt-on-error \
+            -output-directory "$CV_ESP_OUTPUT" \
+            /tmp/main_es.tex
+
+          pdflatex \
+            -interaction=nonstopmode \
+            -halt-on-error \
+            -output-directory "$CV_ESP_OUTPUT" \
+            /tmp/main_es.tex
+
+          mv \
+            "$CV_ESP_OUTPUT/main_es.pdf" \
+            "$CV_ESP_OUTPUT/CV Gabriele Cano Cantelmo - ${date_stamp} - Esp.pdf"
+
+      - name: Build cover letter PDF
+        if: steps.changes.outputs.cover_letters == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          date_stamp="$(date -u +%Y%m%d)"
+
+          mapfile -t added_cover_letters < <(
+            git diff \
+              --name-only \
+              --diff-filter=A \
+              "${{ github.event.before }}" \
+              "${{ github.sha }}" \
+              -- "$COVER_LETTER_SOURCE"
+          )
+
+          if [[ ${#added_cover_letters[@]} -eq 0 ]]; then
+            echo "No newly added cover letter found."
+            exit 0
+          fi
+
+          if [[ ${#added_cover_letters[@]} -gt 1 ]]; then
+            echo "More than one cover letter was added."
+            echo "The requested output filename would cause a collision."
+            exit 1
+          fi
+
+          source="${added_cover_letters[0]}"
+          mkdir -p "$COVER_LETTER_OUTPUT"
+
+          pdflatex \
+            -interaction=nonstopmode \
+            -halt-on-error \
+            -output-directory "$COVER_LETTER_OUTPUT" \
+            "$source"
+
+          pdflatex \
+            -interaction=nonstopmode \
+            -halt-on-error \
+            -output-directory "$COVER_LETTER_OUTPUT" \
+            "$source"
+
+          generated_pdf="$COVER_LETTER_OUTPUT/$(basename "${source%.tex}.pdf")"
+
+          mv \
+            "$generated_pdf" \
+            "$COVER_LETTER_OUTPUT/Cover Letter Gabriele Cano Cantelmo - ${date_stamp}.pdf"
+
+      - name: Commit generated PDFs
+        if: steps.changes.outputs.cv == 'true' || steps.changes.outputs.cover_letters == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          find CV -type f ! -name '*.aux' ! -name '*.log' ! -name '*.out' -print0 | xargs -0 git add
-          git add TeX/main.tex TeX/main_es.tex "TeX/coverLetter.tex" 2>/dev/null || true
+
+          git add \
+            "$CV_ENG_OUTPUT"/*.pdf \
+            "$CV_ESP_OUTPUT"/*.pdf \
+            "$COVER_LETTER_OUTPUT"/*.pdf \
+            2>/dev/null || true
+
           if git diff --cached --quiet; then
-            echo "No generated changes to commit"
+            echo "No generated PDFs to commit."
           else
-            git commit -m "Build CV PDFs [skip ci]"
+            git commit -m "Build PDFs [skip ci]"
             git push
           fi
 
       - name: Upload PDF artifacts
+        if: steps.changes.outputs.cv == 'true' || steps.changes.outputs.cover_letters == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: cv-pdfs
+          name: generated-pdfs
           path: |
-            CV/ENG/*.pdf
-            CV/ESP/*.pdf
+            CV/PDFs/CV/ENG/*.pdf
+            CV/PDFs/CV/ESP/*.pdf
+            CV/PDFs/CoverLetters/*.pdf
           if-no-files-found: error
