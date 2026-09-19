@@ -1,4 +1,4 @@
-name: Build CV PDF
+name: Build CV PDFs
 
 on:
   push:
@@ -6,7 +6,8 @@ on:
       - main
     paths:
       - "main.tex"
-      - ".github/workflows/build-cv-pdf.yml"
+      - "TeX/main.tex"
+      - ".github/workflows/blank.yml"
   workflow_dispatch:
 
 permissions:
@@ -17,10 +18,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install LaTeX dependencies
+      - name: Prepare LaTeX sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p TeX CV/ENG CV/ESP "Cover Letters"
+
+          # Keep the requested TeX directory as the canonical source location.
+          # This also migrates the existing root-level files on the first run.
+          if [[ ! -f TeX/main.tex ]]; then
+            cp main.tex TeX/main.tex
+          fi
+          if [[ ! -f TeX/coverLetter.tex && -f coverLetter.tex ]]; then
+            cp coverLetter.tex TeX/coverLetter.tex
+          fi
+
+      - name: Install LaTeX
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -29,28 +45,111 @@ jobs:
             texlive-latex-extra \
             texlive-fonts-recommended \
             texlive-lang-english \
-            texlive-lang-italian
+            texlive-lang-spanish
 
-      - name: Build PDF from main.tex
+      - name: Create or update Spanish source
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        shell: bash
         run: |
-          pdflatex -interaction=nonstopmode -halt-on-error main.tex
-          cp main.pdf "CV2026 - Gabriele Cano Cantelmo.pdf"
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          import os
+          import pathlib
+          import urllib.request
 
-      - name: Commit updated PDF to repo
+          source = pathlib.Path("TeX/main.tex")
+          target = pathlib.Path("TeX/main_es.tex")
+          text = source.read_text(encoding="utf-8")
+          key = os.environ.get("OPENAI_API_KEY")
+
+          if not key:
+              if not target.exists():
+                  target.write_text(
+                      "% Spanish translation not generated: set the OPENAI_API_KEY repository secret.\n"
+                      "% This fallback keeps the Spanish build available until translation is configured.\n\n"
+                      + text,
+                      encoding="utf-8",
+                  )
+              print("OPENAI_API_KEY is not configured; preserving the existing Spanish source or using a fallback copy.")
+          else:
+              payload = {
+                  "model": "gpt-4o-mini",
+                  "temperature": 0.1,
+                  "messages": [
+                      {
+                          "role": "system",
+                          "content": (
+                              "Translate the human-readable text in this LaTeX CV from English to European Spanish (Castilian). "
+                              "Preserve every LaTeX command, environment, placeholder, URL, email, number, date, and formatting command exactly. "
+                              "Return only the complete translated LaTeX source."
+                          ),
+                      },
+                      {"role": "user", "content": text},
+                  ],
+              }
+              request = urllib.request.Request(
+                  "https://api.openai.com/v1/chat/completions",
+                  data=json.dumps(payload).encode(),
+                  headers={
+                      "Authorization": f"Bearer {key}",
+                      "Content-Type": "application/json",
+                  },
+                  method="POST",
+              )
+              with urllib.request.urlopen(request, timeout=120) as response:
+                  result = json.load(response)
+              translated = result["choices"][0]["message"]["content"]
+              if translated.startswith("```"):
+                  translated = translated.split("\n", 1)[1].rsplit("```", 1)[0]
+              target.write_text(translated.rstrip() + "\n", encoding="utf-8")
+          PY
+
+      - name: Build English PDF
+        shell: bash
         run: |
+          set -euo pipefail
+          date_stamp="$(date -u +%Y%m%d)"
+          mkdir -p CV/ENG
+          pdflatex -interaction=nonstopmode -halt-on-error \
+            -output-directory CV/ENG TeX/main.tex
+          pdflatex -interaction=nonstopmode -halt-on-error \
+            -output-directory CV/ENG TeX/main.tex
+          mv CV/ENG/main.pdf "CV/ENG/CV Gabriele Cano Cantelmo - ${date_stamp} - ENG.pdf"
+
+      - name: Build Spanish PDF
+        shell: bash
+        run: |
+          set -euo pipefail
+          date_stamp="$(date -u +%Y%m%d)"
+          mkdir -p CV/ESP
+          pdflatex -interaction=nonstopmode -halt-on-error \
+            -output-directory CV/ESP TeX/main_es.tex
+          pdflatex -interaction=nonstopmode -halt-on-error \
+            -output-directory CV/ESP TeX/main_es.tex
+          mv CV/ESP/main_es.pdf "CV/ESP/CV Gabriele Cano Cantelmo - ${date_stamp} - ESP.pdf"
+
+      - name: Commit generated files
+        shell: bash
+        run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "CV2026 - Gabriele Cano Cantelmo.pdf"
+          find CV -type f ! -name '*.aux' ! -name '*.log' ! -name '*.out' -print0 | xargs -0 git add
+          git add TeX/main.tex TeX/main_es.tex "TeX/coverLetter.tex" 2>/dev/null || true
           if git diff --cached --quiet; then
-            echo "No PDF changes to commit"
+            echo "No generated changes to commit"
           else
-            git commit -m "Update generated CV PDF"
+            git commit -m "Build CV PDFs [skip ci]"
             git push
           fi
 
-      - name: Upload PDF artifact
+      - name: Upload PDF artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: cv-pdf
-          path: "CV2026 - Gabriele Cano Cantelmo.pdf"
+          name: cv-pdfs
+          path: |
+            CV/ENG/*.pdf
+            CV/ESP/*.pdf
           if-no-files-found: error
