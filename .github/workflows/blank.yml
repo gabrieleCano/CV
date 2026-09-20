@@ -83,8 +83,16 @@ jobs:
             texlive-lang-english \
             texlive-lang-spanish
 
-      - name: Fetch GitHub OIDC token for Anthropic WIF
+      - name: Restore cached Spanish translation
         if: steps.changes.outputs.cv == 'true'
+        id: es-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/main_es.tex
+          key: cv-es-${{ hashFiles('TeX/CV/main.tex') }}
+
+      - name: Fetch GitHub OIDC token for Anthropic WIF
+        if: steps.changes.outputs.cv == 'true' && steps.es-cache.outputs.cache-hit != 'true'
         uses: actions/github-script@v8
         with:
           script: |
@@ -93,7 +101,7 @@ jobs:
             core.exportVariable('ANTHROPIC_IDENTITY_TOKEN', token);
 
       - name: Create Spanish source in memory with Claude
-        if: steps.changes.outputs.cv == 'true'
+        if: steps.changes.outputs.cv == 'true' && steps.es-cache.outputs.cache-hit != 'true'
         env:
           ANTHROPIC_FEDERATION_RULE_ID: fdrl_01Nm9qj5T4Wj2S6kMomTXwiQ
           ANTHROPIC_ORGANIZATION_ID: 71e7646e-b2af-4ce6-b93f-1a8944c1396a
