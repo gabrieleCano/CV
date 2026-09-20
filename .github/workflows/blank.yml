@@ -99,7 +99,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: generated-pdfs
-          path: .
+          # upload-artifact strips the shared "PDFs/" ancestor from the
+          # paths it stores (see build-pdfs.yml's upload step), so it
+          # must be restored here on download.
+          path: PDFs
 
       - name: Commit generated PDFs
         shell: bash
