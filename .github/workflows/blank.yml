@@ -8,27 +8,24 @@ on:
       - "TeX/CV/main.tex"
       - "TeX/CoverLetters/**"
       - ".github/workflows/blank.yml"
+      - ".github/workflows/translate-cv.yml"
+      - ".github/workflows/build-pdfs.yml"
   workflow_dispatch:
 
 permissions:
   contents: write
   id-token: write
 
-env:
-  CV_SOURCE: TeX/CV/main.tex
-  CV_ENG_OUTPUT: PDFs/CV/ENG
-  CV_ESP_OUTPUT: PDFs/CV/ESP
-  COVER_LETTER_SOURCE: TeX/CoverLetters
-  COVER_LETTER_OUTPUT: PDFs/CoverLetters
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  build:
+  changes:
     runs-on: ubuntu-latest
-
+    outputs:
+      cv: ${{ steps.changes.outputs.cv }}
+      cover_letter_source: ${{ steps.changes.outputs.cover_letter_source }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -47,7 +44,7 @@ jobs:
 
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             echo "cv=true" >> "$GITHUB_OUTPUT"
-            echo "cover_letters=false" >> "$GITHUB_OUTPUT"
+            echo "cover_letter_source=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -64,212 +61,47 @@ jobs:
             echo "cv=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if grep -qE $'^A[[:space:]]+TeX/CoverLetters/[^[:space:]]+$' <<< "$changed_files"; then
-            echo "cover_letters=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "cover_letters=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Install LaTeX
-        if: steps.changes.outputs.cv == 'true' || steps.changes.outputs.cover_letters == 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            texlive-latex-base \
-            texlive-latex-recommended \
-            texlive-latex-extra \
-            texlive-fonts-recommended \
-            texlive-fonts-extra \
-            texlive-lang-english \
-            texlive-lang-spanish
-
-      - name: Restore cached Spanish translation
-        if: steps.changes.outputs.cv == 'true'
-        id: es-cache
-        uses: actions/cache@v4
-        with:
-          path: /tmp/main_es.tex
-          key: cv-es-${{ hashFiles('TeX/CV/main.tex') }}
-
-      - name: Fetch GitHub OIDC token for Anthropic WIF
-        if: steps.changes.outputs.cv == 'true' && steps.es-cache.outputs.cache-hit != 'true'
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const token = await core.getIDToken('https://api.anthropic.com');
-            core.setSecret(token);
-            core.exportVariable('ANTHROPIC_IDENTITY_TOKEN', token);
-
-      - name: Create Spanish source in memory with Claude
-        if: steps.changes.outputs.cv == 'true' && steps.es-cache.outputs.cache-hit != 'true'
-        env:
-          ANTHROPIC_FEDERATION_RULE_ID: fdrl_01Nm9qj5T4Wj2S6kMomTXwiQ
-          ANTHROPIC_ORGANIZATION_ID: 71e7646e-b2af-4ce6-b93f-1a8944c1396a
-          ANTHROPIC_SERVICE_ACCOUNT_ID: svac_0121hdUJqYeYCcUEkHsWfFMw
-          ANTHROPIC_WORKSPACE_ID: wrkspc_019DtBXChUDzd1H8Uf7tM1db
-          ANTHROPIC_MODEL: claude-sonnet-5
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          pip install --quiet "anthropic>=0.70,<1"
-
-          python3 <<'PY'
-          import os
-          import pathlib
-
-          from anthropic import Anthropic
-
-          source = pathlib.Path(os.environ["CV_SOURCE"])
-          target = pathlib.Path("/tmp/main_es.tex")
-
-          text = source.read_text(encoding="utf-8")
-          model = os.environ["ANTHROPIC_MODEL"]
-
-          # Anthropic() auto-detects Workload Identity Federation from the
-          # ANTHROPIC_FEDERATION_RULE_ID / ANTHROPIC_ORGANIZATION_ID /
-          # ANTHROPIC_SERVICE_ACCOUNT_ID / ANTHROPIC_IDENTITY_TOKEN env vars,
-          # exchanges the GitHub OIDC token for a short-lived access token,
-          # and refreshes it automatically. No API key needed.
-          client = Anthropic()
-
-          message = client.messages.create(
-              model=model,
-              max_tokens=12000,
-              system=(
-                  "Translate the human-readable text in this LaTeX CV "
-                  "from English to European Spanish (Castilian). "
-                  "Preserve every LaTeX command, environment, placeholder, "
-                  "URL, email, number, date, and formatting command exactly. "
-                  "Do not translate LaTeX commands, command arguments that "
-                  "contain technical identifiers, URLs, email addresses, "
-                  "company names, product names, or programming technologies. "
-                  "Return only the complete translated LaTeX source without "
-                  "Markdown code fences."
-              ),
-              messages=[
-                  {
-                      "role": "user",
-                      "content": text,
-                  }
-              ],
-          )
-
-          translated = "".join(
-              block.text for block in message.content if block.type == "text"
-          ).strip()
-
-          if not translated:
-              raise SystemExit("Claude returned an empty translation")
-
-          if translated.startswith("```"):
-              translated = translated.split("\n", 1)[1]
-              translated = translated.rsplit("```", 1)[0].strip()
-
-          target.write_text(translated + "\n", encoding="utf-8")
-          PY
-
-      - name: Build English CV PDF
-        if: steps.changes.outputs.cv == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          date_stamp="$(date -u +%Y%m%d)"
-          mkdir -p "$CV_ENG_OUTPUT"
-
-          pdflatex \
-            -interaction=nonstopmode \
-            -halt-on-error \
-            -output-directory "$CV_ENG_OUTPUT" \
-            "$CV_SOURCE"
-
-          pdflatex \
-            -interaction=nonstopmode \
-            -halt-on-error \
-            -output-directory "$CV_ENG_OUTPUT" \
-            "$CV_SOURCE"
-
-          mv \
-            "$CV_ENG_OUTPUT/main.pdf" \
-            "$CV_ENG_OUTPUT/CV Gabriele Cano Cantelmo - ${date_stamp} - Eng.pdf"
-
-      - name: Build Spanish CV PDF
-        if: steps.changes.outputs.cv == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          date_stamp="$(date -u +%Y%m%d)"
-          mkdir -p "$CV_ESP_OUTPUT"
-
-          pdflatex \
-            -interaction=nonstopmode \
-            -halt-on-error \
-            -output-directory "$CV_ESP_OUTPUT" \
-            /tmp/main_es.tex
-
-          pdflatex \
-            -interaction=nonstopmode \
-            -halt-on-error \
-            -output-directory "$CV_ESP_OUTPUT" \
-            /tmp/main_es.tex
-
-          mv \
-            "$CV_ESP_OUTPUT/main_es.pdf" \
-            "$CV_ESP_OUTPUT/CV Gabriele Cano Cantelmo - ${date_stamp} - Esp.pdf"
-
-      - name: Build cover letter PDF
-        if: steps.changes.outputs.cover_letters == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          date_stamp="$(date -u +%Y%m%d)"
-
           mapfile -t added_cover_letters < <(
-            git diff \
-              --name-only \
-              --diff-filter=A \
-              "${{ github.event.before }}" \
-              "${{ github.sha }}" \
-              -- "$COVER_LETTER_SOURCE"
+            grep -oE $'^A[[:space:]]+TeX/CoverLetters/[^[:space:]]+$' <<< "$changed_files" \
+              | sed -E 's/^A[[:space:]]+//'
           )
-
-          if [[ ${#added_cover_letters[@]} -eq 0 ]]; then
-            echo "No newly added cover letter found."
-            exit 0
-          fi
 
           if [[ ${#added_cover_letters[@]} -gt 1 ]]; then
-            echo "More than one cover letter was added."
-            echo "The requested output filename would cause a collision."
+            echo "More than one cover letter was added in this push." >&2
+            echo "The requested output filename would cause a collision." >&2
             exit 1
           fi
 
-          source="${added_cover_letters[0]}"
-          mkdir -p "$COVER_LETTER_OUTPUT"
+          echo "cover_letter_source=${added_cover_letters[0]:-}" >> "$GITHUB_OUTPUT"
 
-          pdflatex \
-            -interaction=nonstopmode \
-            -halt-on-error \
-            -output-directory "$COVER_LETTER_OUTPUT" \
-            "$source"
+  translate:
+    needs: changes
+    if: needs.changes.outputs.cv == 'true'
+    uses: ./.github/workflows/translate-cv.yml
 
-          pdflatex \
-            -interaction=nonstopmode \
-            -halt-on-error \
-            -output-directory "$COVER_LETTER_OUTPUT" \
-            "$source"
+  build:
+    needs: [changes, translate]
+    if: always() && needs.changes.result == 'success' && (needs.translate.result == 'success' || needs.translate.result == 'skipped') && (needs.changes.outputs.cv == 'true' || needs.changes.outputs.cover_letter_source != '')
+    uses: ./.github/workflows/build-pdfs.yml
+    with:
+      build_english: ${{ needs.changes.outputs.cv == 'true' }}
+      build_spanish: ${{ needs.changes.outputs.cv == 'true' }}
+      cover_letter_source: ${{ needs.changes.outputs.cover_letter_source }}
 
-          generated_pdf="$COVER_LETTER_OUTPUT/$(basename "${source%.tex}.pdf")"
+  commit:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-          mv \
-            "$generated_pdf" \
-            "$COVER_LETTER_OUTPUT/Cover Letter Gabriele Cano Cantelmo - ${date_stamp}.pdf"
+      - name: Download generated PDFs
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-pdfs
+          path: .
 
       - name: Commit generated PDFs
-        if: steps.changes.outputs.cv == 'true' || steps.changes.outputs.cover_letters == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -278,9 +110,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add \
-            "$CV_ENG_OUTPUT"/*.pdf \
-            "$CV_ESP_OUTPUT"/*.pdf \
-            "$COVER_LETTER_OUTPUT"/*.pdf \
+            PDFs/CV/ENG/*.pdf \
+            PDFs/CV/ESP/*.pdf \
+            PDFs/CoverLetters/*.pdf \
             2>/dev/null || true
 
           if git diff --cached --quiet; then
@@ -289,14 +121,3 @@ jobs:
             git commit -m "Build PDFs [skip ci]"
             git push
           fi
-
-      - name: Upload PDF artifacts
-        if: steps.changes.outputs.cv == 'true' || steps.changes.outputs.cover_letters == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated-pdfs
-          path: |
-            PDFs/CV/ENG/*.pdf
-            PDFs/CV/ESP/*.pdf
-            PDFs/CoverLetters/*.pdf
-          if-no-files-found: error

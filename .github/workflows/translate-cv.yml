@@ -1,0 +1,102 @@
+name: Translate CV to Spanish
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+
+env:
+  CV_SOURCE: TeX/CV/main.tex
+  ANTHROPIC_MODEL: claude-sonnet-5
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Fetch GitHub OIDC token for Anthropic WIF
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const token = await core.getIDToken('https://api.anthropic.com');
+            core.setSecret(token);
+            core.exportVariable('ANTHROPIC_IDENTITY_TOKEN', token);
+
+      - name: Create Spanish source with Claude
+        env:
+          ANTHROPIC_FEDERATION_RULE_ID: fdrl_01Nm9qj5T4Wj2S6kMomTXwiQ
+          ANTHROPIC_ORGANIZATION_ID: 71e7646e-b2af-4ce6-b93f-1a8944c1396a
+          ANTHROPIC_SERVICE_ACCOUNT_ID: svac_0121hdUJqYeYCcUEkHsWfFMw
+          ANTHROPIC_WORKSPACE_ID: wrkspc_019DtBXChUDzd1H8Uf7tM1db
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pip install --quiet "anthropic>=0.70,<1"
+          mkdir -p /tmp/cv-es
+
+          python3 <<'PY'
+          import os
+          import pathlib
+
+          from anthropic import Anthropic
+
+          source = pathlib.Path(os.environ["CV_SOURCE"])
+          target = pathlib.Path("/tmp/cv-es/main_es.tex")
+
+          text = source.read_text(encoding="utf-8")
+          model = os.environ["ANTHROPIC_MODEL"]
+
+          # Anthropic() auto-detects Workload Identity Federation from the
+          # ANTHROPIC_FEDERATION_RULE_ID / ANTHROPIC_ORGANIZATION_ID /
+          # ANTHROPIC_SERVICE_ACCOUNT_ID / ANTHROPIC_IDENTITY_TOKEN env vars,
+          # exchanges the GitHub OIDC token for a short-lived access token,
+          # and refreshes it automatically. No API key needed.
+          client = Anthropic()
+
+          message = client.messages.create(
+              model=model,
+              max_tokens=12000,
+              system=(
+                  "Translate the human-readable text in this LaTeX CV "
+                  "from English to European Spanish (Castilian). "
+                  "Preserve every LaTeX command, environment, placeholder, "
+                  "URL, email, number, date, and formatting command exactly. "
+                  "Do not translate LaTeX commands, command arguments that "
+                  "contain technical identifiers, URLs, email addresses, "
+                  "company names, product names, or programming technologies. "
+                  "Return only the complete translated LaTeX source without "
+                  "Markdown code fences."
+              ),
+              messages=[
+                  {
+                      "role": "user",
+                      "content": text,
+                  }
+              ],
+          )
+
+          translated = "".join(
+              block.text for block in message.content if block.type == "text"
+          ).strip()
+
+          if not translated:
+              raise SystemExit("Claude returned an empty translation")
+
+          if translated.startswith("```"):
+              translated = translated.split("\n", 1)[1]
+              translated = translated.rsplit("```", 1)[0].strip()
+
+          target.write_text(translated + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload Spanish source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cv-es-source
+          path: /tmp/cv-es/main_es.tex
+          retention-days: 7

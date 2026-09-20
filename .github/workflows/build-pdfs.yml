@@ -1,0 +1,149 @@
+name: Build PDFs
+
+on:
+  workflow_call:
+    inputs:
+      build_english:
+        type: boolean
+        default: true
+      build_spanish:
+        type: boolean
+        default: true
+      cover_letter_source:
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      build_english:
+        type: boolean
+        default: true
+        description: "Build the English CV PDF"
+      build_spanish:
+        type: boolean
+        default: false
+        description: "Build the Spanish CV PDF (needs a cv-es-source artifact from a recent Translate CV run)"
+      cover_letter_source:
+        type: string
+        default: ""
+        description: "Path to a cover letter .tex to build (leave empty to skip)"
+
+env:
+  CV_SOURCE: TeX/CV/main.tex
+  CV_ENG_OUTPUT: PDFs/CV/ENG
+  CV_ESP_OUTPUT: PDFs/CV/ESP
+  COVER_LETTER_OUTPUT: PDFs/CoverLetters
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install LaTeX
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            texlive-latex-base \
+            texlive-latex-recommended \
+            texlive-latex-extra \
+            texlive-fonts-recommended \
+            texlive-fonts-extra \
+            texlive-lang-english \
+            texlive-lang-spanish
+
+      - name: Download Spanish source artifact
+        if: inputs.build_spanish
+        uses: actions/download-artifact@v4
+        with:
+          name: cv-es-source
+          path: /tmp/cv-es
+
+      - name: Build English CV PDF
+        if: inputs.build_english
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          date_stamp="$(date -u +%Y%m%d)"
+          mkdir -p "$CV_ENG_OUTPUT"
+
+          pdflatex \
+            -interaction=nonstopmode \
+            -halt-on-error \
+            -output-directory "$CV_ENG_OUTPUT" \
+            "$CV_SOURCE"
+
+          pdflatex \
+            -interaction=nonstopmode \
+            -halt-on-error \
+            -output-directory "$CV_ENG_OUTPUT" \
+            "$CV_SOURCE"
+
+          mv \
+            "$CV_ENG_OUTPUT/main.pdf" \
+            "$CV_ENG_OUTPUT/CV Gabriele Cano Cantelmo - ${date_stamp} - Eng.pdf"
+
+      - name: Build Spanish CV PDF
+        if: inputs.build_spanish
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          date_stamp="$(date -u +%Y%m%d)"
+          mkdir -p "$CV_ESP_OUTPUT"
+
+          pdflatex \
+            -interaction=nonstopmode \
+            -halt-on-error \
+            -output-directory "$CV_ESP_OUTPUT" \
+            /tmp/cv-es/main_es.tex
+
+          pdflatex \
+            -interaction=nonstopmode \
+            -halt-on-error \
+            -output-directory "$CV_ESP_OUTPUT" \
+            /tmp/cv-es/main_es.tex
+
+          mv \
+            "$CV_ESP_OUTPUT/main_es.pdf" \
+            "$CV_ESP_OUTPUT/CV Gabriele Cano Cantelmo - ${date_stamp} - Esp.pdf"
+
+      - name: Build cover letter PDF
+        if: inputs.cover_letter_source != ''
+        env:
+          SOURCE: ${{ inputs.cover_letter_source }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          date_stamp="$(date -u +%Y%m%d)"
+          mkdir -p "$COVER_LETTER_OUTPUT"
+
+          pdflatex \
+            -interaction=nonstopmode \
+            -halt-on-error \
+            -output-directory "$COVER_LETTER_OUTPUT" \
+            "$SOURCE"
+
+          pdflatex \
+            -interaction=nonstopmode \
+            -halt-on-error \
+            -output-directory "$COVER_LETTER_OUTPUT" \
+            "$SOURCE"
+
+          generated_pdf="$COVER_LETTER_OUTPUT/$(basename "${SOURCE%.tex}.pdf")"
+
+          mv \
+            "$generated_pdf" \
+            "$COVER_LETTER_OUTPUT/Cover Letter Gabriele Cano Cantelmo - ${date_stamp}.pdf"
+
+      - name: Upload PDF artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-pdfs
+          path: |
+            PDFs/CV/ENG/*.pdf
+            PDFs/CV/ESP/*.pdf
+            PDFs/CoverLetters/*.pdf
+          if-no-files-found: ignore
