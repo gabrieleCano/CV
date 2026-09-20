@@ -108,15 +108,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          shopt -s nullglob
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # nullglob makes an unmatched pattern (e.g. no cover letter built
+          # this run) expand to nothing instead of a literal string, which
+          # would otherwise make the whole `git add` invocation fail and
+          # silently stage nothing at all (git validates every pathspec
+          # before staging any of them).
           git add \
             PDFs/CV/ENG/*.pdf \
             PDFs/CV/ESP/*.pdf \
-            PDFs/CoverLetters/*.pdf \
-            2>/dev/null || true
+            PDFs/CoverLetters/*.pdf
 
           if git diff --cached --quiet; then
             echo "No generated PDFs to commit."
