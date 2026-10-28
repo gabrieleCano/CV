@@ -29,7 +29,12 @@ Three workflows, split so the translation and PDF-build stages are independently
 
 The Anthropic WIF federation rule (Console-side, not in this repo) matches on `repository`/`repository_owner` claims from the GitHub OIDC token — not `event_name` (differs between `push` and `workflow_dispatch`) and not a specific workflow file, so it authorizes both trigger types and any workflow in this repo.
 
-There is a fourth, unrelated workflow (`anthropic-wif-test.yml`) that exercises the raw GitHub OIDC → Anthropic WIF token exchange manually; it isn't part of the CV build.
+Consequences worth knowing:
+
+- The Spanish `.tex` is never committed — only its PDF. To tweak the Spanish wording, change the English source or the translation prompt in `translate-cv.yml`.
+- Every cover letter PDF is named `Cover Letter Gabriele Cano Cantelmo - <YYYYMMDD>.pdf` (the company name from the source filename is dropped), so two letters built on the same UTC day overwrite each other.
+- Older dated PDFs under `PDFs/` are never deleted by CI; they accumulate.
+- CI pushes a `Build PDFs [skip ci]` commit to `main` after every successful run, so `git pull` before making further local commits.
 
 ## Building locally
 
